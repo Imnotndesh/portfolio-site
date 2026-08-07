@@ -19,12 +19,16 @@
     --pink: #FF3D8A;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; cursor: none; }
-  html { background: var(--blue); }
+  /* clip horizontal overflow on the root element too, not just body, so the
+     oversized marquee/track + decorative headshot can never force a sideways
+     scroll or rubber-band pan on mobile. Desktop layout is untouched. */
+  html { background: var(--blue); overflow-x: clip; }
   body {
     background: var(--blue);
     color: var(--white);
     font-family: 'Archivo', sans-serif;
     overflow-x: clip;
+    overscroll-behavior-x: contain;
   }
   a, button { cursor: none; }
   .mono { font-family: 'JetBrains Mono', monospace; }
@@ -241,27 +245,47 @@
   @media (max-width: 640px) {
     * { cursor: auto !important; }
     #cursor { display: none; }
-    nav { padding: 20px 20px; }
+
+    nav { padding: 18px 20px; }
     .navlinks { gap: 14px; font-size: 11px; }
-    .marquee-track { font-size: clamp(2.4rem, 15vw, 3.6rem); animation-duration: 38s; }
-    .marquee-track span { padding-right: 32px; -webkit-text-stroke-width: 1.4px; }
-    .hero-center { grid-template-columns: 1fr; padding: 24px 20px 0; gap: 28px; }
-    .hero-desc { font-size: 16px; max-width: 100%; }
-    .scroll-cue { align-items: flex-start; text-align: left; }
-    .proj-head { grid-template-columns: 32px 1fr 30px; gap: 14px; }
+    .logo { font-size: 18px; }
+
+    /* crisper marquee on small pixels; full shorthand so the thinner stroke
+       actually wins over the desktop 2px stroke */
+    .marquee-track { font-size: clamp(2.2rem, 14vw, 3.4rem); animation-duration: 38s; }
+    .marquee-track span { padding-right: 28px; -webkit-text-stroke: 1.4px rgba(255,255,255,0.5); }
+
+    .hero-center { grid-template-columns: 1fr; padding: 26px 20px 0; gap: 26px; }
+    .hero-role { font-size: 12px; margin-bottom: 18px; }
+    .hero-desc { font-size: 15.5px; line-height: 1.6; max-width: 100%; }
+
+    .proj { border-top-width: 1px; }
+    .proj-head { grid-template-columns: 32px 1fr 30px; gap: 14px; padding: 22px 0; }
     .proj-year { display: none; }
-    .proj-name { font-size: clamp(1.3rem, 8vw, 1.9rem); }
-    .proj-inner { grid-template-columns: 1fr; gap: 16px; }
-    .proj-inner p { max-width: 100%; }
+    .proj-name { font-size: clamp(1.3rem, 8.6vw, 1.9rem); }
+    .proj-inner { grid-template-columns: 1fr; gap: 16px; padding-top: 4px; }
+    .proj-inner p { max-width: 100%; font-size: 15px; }
     .proj-metric { font-size: 2rem; }
+    /* the stacked mobile body holds description + tags + metric, give it room */
+    .proj.open .proj-body { max-height: 900px; }
+
     .stack-grid { grid-template-columns: 1fr; }
+    .stack-cell { padding: 32px 20px; }
+    .stack-cell .v { font-size: 1.2rem; }
+
     .stats { grid-template-columns: 1fr; }
-    .stat { border-left: none; border-top: 1px solid rgba(255,255,255,0.2); padding: 40px 20px; }
+    .stat { border-left: none; border-top: 1px solid rgba(255,255,255,0.2); padding: 42px 20px; }
     .stat:first-child { border-top: none; }
-    section { padding: 90px 20px; }
-    .section-head { margin-bottom: 48px; }
+    .stat-num { font-size: clamp(2.4rem, 16vw, 3.4rem); }
+
+    section { padding: 84px 20px; }
+    .section-tag { margin-bottom: 16px; }
+    .section-head { margin-bottom: 44px; }
+
+    .contact-word { font-size: clamp(2.4rem, 15vw, 4.5rem); line-height: 0.95; }
+    .contact-sub { font-size: 13px; padding: 13px 22px; margin-top: 22px; max-width: 88vw; }
+
     footer { padding: 22px 20px; flex-direction: column; gap: 8px; }
-    .contact-word { font-size: clamp(2.4rem, 14vw, 4.5rem); }
   }
 
   /* ===== VERY SMALL PHONES — trim the nav so it never wraps or squeezes ===== */
@@ -298,7 +322,13 @@
     user-select: none;
   }
   @media (max-width: 640px) {
-    .contact-headshot { right: -8%; height: 70%; opacity: 0.14; }
+    /* keep the headshot fully inside the panel on small screens so its width
+       can't push the document wider than the viewport */
+    .contact-headshot { right: 0; height: 58%; opacity: 0.13; }
+    /* base .contact-wrap / .contact-panel rules live later in the sheet, so
+       these mobile overrides must come after them to win the cascade */
+    .contact-wrap { height: 160vh; }
+    .contact-panel { height: 100vh; height: 100svh; }
   }
 </style>
 </head>
