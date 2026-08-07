@@ -17,6 +17,18 @@
     --lime: #D4FF3F;
     --white: #FFFFFF;
     --pink: #FF3D8A;
+    /* tell the browser which palette this is using, for native controls */
+    color-scheme: light;
+  }
+  /* DARK THEME — inferred from the OS/browser, no toggle. Only the colour
+     tokens change; the entire design/layout is untouched. The accent lime
+     stays put so the brand the look survives on dark backgrounds. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --blue: #0B1120;   /* deep near-black navy page background */
+      --ink:  #060A18;   /* deepest material (cells, hover, ink-on-lime) */
+      color-scheme: dark;
+    }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; cursor: none; }
   /* clip horizontal overflow on the root element too, not just body, so the
@@ -44,6 +56,8 @@
     z-index: 9999;
     mix-blend-mode: difference;
     transform: translate(-50%, -50%);
+    /* smooth the big/small size change instead of snapping */
+    transition: width 0.25s ease, height 0.25s ease;
   }
   #cursor.big { width: 70px; height: 70px; }
 
@@ -58,6 +72,9 @@
     display: flex; justify-content: space-between; align-items: center;
     padding: 26px 56px;
     mix-blend-mode: difference;
+    /* soft blur so content scrolling under the nav reads cleanly */
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
   }
   .logo { font-family: 'Archivo Black', sans-serif; font-size: 20px; color: var(--white); }
   .navlinks { display: flex; gap: 20px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--white); }
@@ -478,7 +495,10 @@ const cursor = document.getElementById('cursor');
 window.addEventListener('mousemove', (e) => {
   gsap.to(cursor, { x: e.clientX, y: e.clientY, duration: 0.15, ease: 'power2.out' });
 });
-document.querySelectorAll('.proj-head, .btn, a, .contact-sub, .stack-cell').forEach(el => {
+// expand/collapse driven by the simple .big class; the size change is smoothed
+// by the CSS transition on #cursor
+const hoverEls = document.querySelectorAll('.proj-head, .btn, a, .contact-sub, .stack-cell');
+hoverEls.forEach(el => {
   el.addEventListener('mouseenter', () => cursor.classList.add('big'));
   el.addEventListener('mouseleave', () => cursor.classList.remove('big'));
 });
@@ -489,18 +509,39 @@ gsap.to('#progress', {
   scrollTrigger: { trigger: document.body, start: 'top top', end: 'bottom bottom', scrub: 0.3 }
 });
 
-/* shifting highlight across the marquee words, no hard reset */
+/* highlight stays locked to whichever word is actually centred in the viewport,
+   so it always travels in lock-step with the scrolling text and can never run
+   ahead of (or behind) it — a word is lit while it's on show and handed off the
+   moment the next word takes centre stage. This keeps the sync true at every
+   screen size / scroll speed. */
 const marqueeSpans = document.querySelectorAll('#marquee span');
 const halfCount = marqueeSpans.length / 2;
-let highlightIdx = 0;
-function shiftHighlight() {
+let highlightIdx = -1;
+function syncHighlight() {
+  const center = window.innerWidth / 2;
+  let best = 0, bestDist = Infinity;
+  for (let i = 0; i < marqueeSpans.length; i++) {
+    const r = marqueeSpans[i].getBoundingClientRect();
+    const d = Math.abs(r.left + r.width / 2 - center);
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  /* hysteresis: if an already-lit word is effectively still the closest, don't
+     flip-flop while two words straddle the halfway point */
+  if (highlightIdx >= 0 && highlightIdx !== best) {
+    const cur = marqueeSpans[highlightIdx].getBoundingClientRect();
+    const curD = Math.abs(cur.left + cur.width / 2 - center);
+    if (bestDist > curD - 3) return;
+  }
+  if (best === highlightIdx) return;
+  highlightIdx = best;
   marqueeSpans.forEach(s => s.classList.remove('fill'));
-  marqueeSpans[highlightIdx].classList.add('fill');
-  marqueeSpans[(highlightIdx + halfCount) % marqueeSpans.length].classList.add('fill');
-  highlightIdx = (highlightIdx + 1) % halfCount;
+  marqueeSpans[best].classList.add('fill');
+  marqueeSpans[(best + halfCount) % marqueeSpans.length].classList.add('fill');
 }
-shiftHighlight();
-setInterval(shiftHighlight, 2600);
+(function loop() {
+  syncHighlight();
+  requestAnimationFrame(loop);
+})();
 
 /* hero fade/slide in */
 gsap.from('.hero-role, .hero-desc, .scroll-cue', {
