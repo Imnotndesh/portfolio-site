@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpacePods Linux · Oraimo earbuds, reverse-engineered for Linux</title>
+<meta name="description" content="A Linux daemon and GTK4 GUI that speaks the Oraimo SpaceBuds BLE protocol natively. ANC, EQ, battery, gestures, no phone app required.">
+<link rel="icon" type="image/svg+xml" href="app-icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#111111;
+    --acid:#82E600;
+    --acid-dim:#5C9E00;
+    --paper:#F2F1EA;
+    --white:#FFFFFF;
+    --wire:#FF3355;
+    --dim:#6B6B63;
+    --border:3px;
+    --shadow-x:6px;
+    --shadow-y:6px;
+    /* tell the browser which palette this is using, for native controls */
+    color-scheme: light;
+  }
+  /* DARK THEME = defined at the end of this stylesheet (see bottom of the
+     CSS) so its overrides win the cascade after all base rules. It is
+     inferred from the OS/browser with no toggle. */
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{background:var(--paper);overflow-x:clip;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Space Grotesk',sans-serif;
+    font-size:16px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:clip;
+    overscroll-behavior-x:contain;
+  }
+  ::selection{background:var(--ink);color:var(--acid);}
+  a{color:inherit;}
+  img,svg{display:block;max-width:100%;}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  /* ===== visible focus, always ===== */
+  a:focus-visible,button:focus-visible,summary:focus-visible{
+    outline:3px solid var(--ink);
+    outline-offset:3px;
+  }
+
+  /* ===== hard shadow utility ===== */
+  .block{
+    background:var(--white);
+    border:var(--border) solid var(--ink);
+    box-shadow:var(--shadow-x) var(--shadow-y) 0 var(--ink);
+  }
+
+  /* ===== top bar ===== */
+  header{
+    position:sticky;top:0;z-index:50;
+    /* frosty glass: semi-transparent with backdrop blur, over the video */
+    background:color-mix(in srgb, var(--paper) 72%, transparent);
+    -webkit-backdrop-filter:blur(14px) saturate(1.3);
+    backdrop-filter:blur(14px) saturate(1.3);
+    border-bottom:var(--border) solid color-mix(in srgb, var(--ink) 18%, transparent);
+    transition:background .25s ease, border-color .25s ease;
+  }
+  /* a touch more solid once the page scrolls past the hero */
+  header.scrolled{
+    background:color-mix(in srgb, var(--paper) 92%, transparent);
+    border-bottom-color:var(--ink);
+  }
+  .bar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 0;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;letter-spacing:.02em;}
+  .brand img{width:30px;height:30px;border-radius:6px;cursor:pointer;}
+  .bar nav{display:flex;gap:22px;font-size:12px;font-weight:600;letter-spacing:.04em;}
+  .bar nav a{text-decoration:none;border-bottom:2px solid transparent;padding-bottom:2px;}
+  .bar nav a:hover{border-color:var(--ink);}
+  .bar .gh{
+    display:flex;align-items:center;gap:6px;
+    font-size:12px;font-weight:700;text-decoration:none;
+    border:2px solid var(--ink);padding:7px 12px;background:var(--white);
+  }
+  .bar .gh:hover{background:var(--ink);color:var(--acid);}
+
+  /* mobile nav: burger + slide-down panel */
+  .menu-btn{
+    display:none;align-items:center;justify-content:center;
+    width:38px;height:38px;border:2px solid var(--ink);background:var(--white);
+    font-size:18px;font-weight:800;cursor:pointer;
+  }
+  @media (max-width:720px){
+    .bar nav,.bar .gh{display:none;}
+    .menu-btn{display:flex;}
+  }
+  .mobile-nav{
+    display:none;
+    background:var(--white);
+    padding:10px 24px 16px;
+    flex-direction:column;gap:4px;
+  }
+  .mobile-nav.open{display:flex;}
+  .mobile-nav a{
+    text-decoration:none;font-size:13px;font-weight:700;
+    padding:11px 6px;border-bottom:2px solid var(--ink);
+  }
+  .mobile-nav a:last-of-type{border-bottom:none;}
+  .mobile-nav a:active{background:var(--paper);}
+
+  /* ===== hero (full viewport) ===== */
+  .hero{
+    min-height:100vh;
+    display:flex;align-items:center;
+    padding:96px 0 72px;
+    position:relative;
+    isolation:isolate;
+  }
+  .hero .wrap{width:100%;position:relative;z-index:2;margin-left:0;margin-right:0;}
+  /* looping background video */
+  .hero-video{
+    position:absolute;inset:0;
+    width:100%;height:100%;
+    object-fit:cover;object-position:center;
+    z-index:0;
+  }
+  /* readability scrim; strongest at the left where the copy sits */
+  .hero-overlay{
+    position:absolute;inset:0;z-index:1;
+    background:linear-gradient(90deg,
+      color-mix(in srgb, var(--paper) 82%, transparent) 0%,
+      color-mix(in srgb, var(--paper) 55%, transparent) 34%,
+      color-mix(in srgb, var(--paper) 18%, transparent) 68%,
+      color-mix(in srgb, var(--paper) 6%, transparent) 100%);
+    pointer-events:none;
+  }
+  /* neobrutalist load-in animation for hero content */
+  @keyframes slideUp{
+    from{opacity:0;transform:translateY(28px);}
+    to{opacity:1;transform:translateY(0);}
+  }
+  .hero h1{
+    animation:slideUp .7s cubic-bezier(.2,.9,.3,1) both;
+  }
+  .hero .lede{
+    animation:slideUp .7s cubic-bezier(.2,.9,.3,1) .12s both;
+  }
+  .hero .hero-install{
+    animation:slideUp .7s cubic-bezier(.2,.9,.3,1) .24s both;
+  }
+  .hero .eyebrow{
+    animation:slideUp .6s cubic-bezier(.2,.9,.3,1) both;
+  }
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:8px;
+    background:var(--ink);color:var(--acid);
+    font-size:11px;font-weight:700;letter-spacing:.08em;
+    padding:6px 10px;margin-bottom:22px;
+  }
+  .eyebrow .dot{width:7px;height:7px;background:var(--acid);border-radius:50%;animation:blink 1.6s steps(1) infinite;}
+  @keyframes blink{0%,49%{opacity:1;}50%,100%{opacity:.15;}}
+
+  h1{
+    font-family:'Archivo Black',sans-serif;
+    font-size:clamp(2.4rem,6.4vw,4.6rem);
+    line-height:.98;
+    letter-spacing:-.01em;
+    text-transform:uppercase;
+    max-width:900px;
+  }
+  h1 .hi{
+    background:var(--acid);
+    color:var(--paper);
+    box-shadow:var(--shadow-x) var(--shadow-y) 0 var(--ink);
+    padding:0 10px;
+    display:inline-block;
+    border:var(--border) solid var(--ink);
+  }
+  .lede{
+    margin-top:24px;
+    max-width:620px;
+    font-size:16px;
+    color:var(--dim);
+  }
+  .lede strong{color:var(--ink);}
+
+  /* ---- install block (full width of the hero wrap) ---- */
+  .hero-install{padding:22px;max-width:760px;}
+  .input-group{
+    display:flex;flex-direction:column;
+    gap:18px;margin-top:14px;
+  }
+  .install .label{
+    font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--dim);
+    display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
+  }
+  .cmdline{
+    background:var(--ink);color:var(--acid);
+    padding:16px;font-size:13.5px;font-weight:600;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    overflow-x:auto;
+    border:2px solid var(--ink);
+  }
+  .cmdline code{white-space:pre;}
+  .copy-btn{
+    flex:0 0 auto;
+    background:var(--acid);color:var(--ink);
+    border:2px solid var(--ink);
+    font-family:inherit;font-weight:800;font-size:11px;letter-spacing:.06em;
+    padding:8px 10px;cursor:pointer;
+  }
+  .copy-btn:hover{background:var(--white);}
+  .copy-btn.copied{background:var(--white);}
+  .install-note{margin-top:12px;font-size:12px;color:var(--dim);}
+  .install-note a{text-decoration:underline;}
+
+  /* ---- collapsible manual install ---- */
+  .manual-toggle{
+    margin-top:16px;font-size:12px;font-weight:800;letter-spacing:.06em;
+  }
+  .manual-toggle a{
+    color:var(--acid-dim);text-decoration:underline dotted;
+    cursor:pointer;
+  }
+  .manual{display:none;margin-top:16px;padding:20px;}
+  .manual.open{display:block;}
+  .manual .label{
+    font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--dim);margin-bottom:14px;
+  }
+  .manual select{
+    width:100%;font-family:inherit;font-size:13px;font-weight:700;
+    padding:12px 14px;border:2px solid var(--ink);background:var(--white);
+    color:var(--ink);cursor:pointer;margin-bottom:16px;
+  }
+  .manual select:focus-visible{outline:3px solid var(--ink);outline-offset:2px;}
+  .manual-rel{
+    font-size:11px;font-weight:700;color:var(--acid-dim);
+    letter-spacing:.04em;margin-bottom:14px;
+  }
+  .manual-note{margin-top:12px;font-size:11.5px;color:var(--dim);line-height:1.5;}
+  .manual-note code{background:var(--paper);border:1px solid var(--ink);padding:1px 5px;font-size:11px;}
+  .manual-row{background:var(--paper);border:2px solid var(--ink);padding:14px;margin-bottom:10px;}
+  .manual-row .pkg{font-size:11px;font-weight:800;letter-spacing:.06em;margin-bottom:8px;color:var(--dim);}
+  .manual-row .cmd{font-size:12px;font-weight:600;overflow-x:auto;}
+  .manual-row .cmd .dl{color:var(--ink);word-break:break-all;}
+  .manual-row a.dl:hover{color:var(--acid-dim);}
+
+  /* ===== section shell ===== */
+  section{padding:84px 0;}
+  h2{
+    font-family:'Archivo Black',sans-serif;
+    font-size:clamp(1.8rem,3.6vw,2.6rem);
+    text-transform:uppercase;
+    letter-spacing:-.01em;
+    margin-bottom:36px;
+    max-width:780px;
+  }
+
+  /* ===== feature spec grid ===== */
+  .specs{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:0;
+    border:var(--border) solid var(--ink);
+  }
+  @media (max-width:820px){.specs{grid-template-columns:repeat(2,1fr);}}
+  @media (max-width:560px){.specs{grid-template-columns:1fr;}}
+  .spec{
+    background:var(--white);
+    padding:22px;
+    border-right:var(--border) solid var(--ink);
+    transition:background .12s ease;
+  }
+  .specs .spec:nth-child(3n){border-right:none;}
+  @media (max-width:820px){.specs .spec:nth-child(3n){border-right:var(--border) solid var(--ink);}
+    .specs .spec:nth-child(2n){border-right:none;}}
+  @media (max-width:560px){.specs .spec{border-right:none !important;}}
+  .spec:hover{background:var(--paper);}
+  .spec .tag{
+    font-size:10px;font-weight:800;letter-spacing:.06em;
+    background:var(--ink);color:var(--acid);
+    display:inline-block;padding:3px 7px;margin-bottom:12px;
+  }
+  .spec h3{font-size:15px;font-weight:700;margin-bottom:8px;letter-spacing:-.01em;}
+  .spec p{font-size:12.5px;color:var(--dim);}
+
+  /* ===== screenshot carousel ===== */
+  .carousel{overflow:hidden;}
+  /* header row: title on the left, live counter on the right */
+  .car-head{
+    display:flex;align-items:center;justify-content:space-between;
+    background:var(--ink);color:var(--white);
+    padding:9px 14px;font-size:11px;font-weight:700;letter-spacing:.05em;
+  }
+  .car-head .car-title{display:flex;align-items:center;gap:8px;}
+  .car-head .car-title::before{
+    content:'';width:8px;height:8px;background:var(--acid);
+    border-radius:50%;display:inline-block;
+  }
+  .car-count{font-family:'JetBrains Mono',monospace;color:var(--acid);}
+  /* main stage: arrows at either end, image in the middle */
+  .car-stage{display:flex;align-items:stretch;}
+  .car-arrow{
+    flex:0 0 52px;border:none;background:var(--paper);
+    font-size:34px;line-height:1;cursor:pointer;color:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    border-right:var(--border) solid var(--ink);transition:background .12s ease;
+  }
+  .car-arrow.next{border-right:none;border-left:var(--border) solid var(--ink);}
+  .car-arrow:hover{background:var(--acid);color:var(--ink);}
+  .car-arrow:active{background:var(--dim);color:var(--paper);}
+  .car-view{flex:1;overflow:hidden;background:var(--paper);}
+  .car-slides{display:flex;transition:transform .3s ease;}
+  .car-slide{flex:0 0 100%;width:100%;position:relative;}
+  .car-slide img{width:100%;height:auto;aspect-ratio:855/605;object-fit:cover;display:block;}
+  /* caption sits on top of the shot bottom edge as a clean label */
+  .car-cap{
+    position:absolute;left:0;right:0;bottom:0;
+    padding:26px 14px 12px;
+    font-size:12px;font-weight:800;letter-spacing:.05em;
+    background:linear-gradient(180deg,transparent,rgba(0,0,0,.72));
+    color:#fff;
+  }
+  /* dots bottom bar */
+  .car-dots-row{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    padding:10px;background:var(--white);
+  }
+  .car-dots{display:flex;gap:7px;}
+  .car-dots .dot{
+    width:26px;height:7px;border-radius:2px;
+    background:var(--dim);cursor:pointer;border:1px solid var(--ink);
+    transition:background .15s ease;
+  }
+  .car-dots .dot:hover{background:var(--acid-dim);}
+  .car-dots .dot.on{background:var(--acid);}
+  @media (max-width:640px){
+    .car-arrow{flex-basis:38px;font-size:24px;}
+    .car-head{padding:8px 10px;}
+  }
+
+  /* ===== architecture ===== */
+  .arch{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:0;
+    border:var(--border) solid var(--ink);
+  }
+  @media (max-width:760px){.arch{grid-template-columns:1fr;}}
+  .arch-node{
+    padding:24px;background:var(--white);
+    border-right:var(--border) solid var(--ink);
+    position:relative;
+  }
+  .arch-node:last-child{border-right:none;}
+  @media (max-width:760px){.arch-node{border-right:none;border-bottom:1px solid color-mix(in srgb, var(--ink) 25%, transparent);}
+    .arch-node:last-child{border-bottom:none;}}
+  .arch-node .n{
+    font-size:10px;font-weight:800;color:var(--dim);letter-spacing:.08em;margin-bottom:8px;
+  }
+  .arch-node h4{font-size:16px;margin-bottom:8px;}
+  .arch-node p{font-size:12.5px;color:var(--dim);margin-bottom:12px;}
+  .arch-node .via{
+    font-size:11px;font-weight:700;color:var(--ink);background:var(--acid);
+    display:inline-block;padding:3px 8px;
+  }
+
+  /* ===== footer / final cta ===== */
+  .cta-block{
+    text-align:center;padding:70px 0;
+  }
+  .cta-block h2{margin:0 auto 20px;text-align:center;max-width:none;}
+  .cta-block .cmdline{max-width:520px;margin:0 auto;text-align:left;}
+  .cta-links{display:flex;gap:14px;justify-content:center;margin-top:26px;flex-wrap:wrap;}
+  .btn{
+    border:2px solid var(--ink);padding:11px 18px;font-weight:800;font-size:12.5px;
+    text-decoration:none;letter-spacing:.03em;
+  }
+  .btn.primary{background:var(--acid);}
+  .btn.primary:hover{background:var(--ink);color:var(--acid);}
+  .btn.ghost{background:var(--white);}
+  .btn.ghost:hover{background:var(--paper);}
+
+  footer{
+    padding:26px 0;
+    font-size:11.5px;color:var(--dim);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;
+  }
+  footer a{text-decoration:underline;}
+
+  /* ===== mobile layout port ===== */
+  @media (max-width:640px){
+    .wrap{padding:0 16px;}
+    /* full viewport height, accounting for mobile URL bars */
+    .hero{min-height:100svh;padding:70px 0 48px;}
+    h1{font-size:clamp(2rem,11vw,2.9rem);}
+    .lede{font-size:15px;line-height:1.6;}
+    section{padding:58px 0;}
+    .bar{padding:12px 0;}
+    .brand{font-size:13px;}
+    .brand img{width:26px;height:26px;}
+    .cmdline{font-size:12.5px;padding:13px;}
+    .car-arrow{width:40px;font-size:24px;}
+    .manual{padding:16px;}
+    .arch-node{padding:20px;}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .eyebrow .dot{animation:none;}
+    .car-slides{transition:none;}
+    .hero h1, .hero .lede, .hero .eyebrow, .hero .hero-install{animation:none;}
+    *{transition:none !important;}
+  }
+
+  /* ============================================================
+     DARK THEME - inferred from the OS/browser, no toggle.
+     Deliberately last so these overrides beat every base rule above.
+     Rule: dark surfaces + light text. Acid is an accent used only
+     on dark, or as a fill with dark text. No acid-on-white.
+  ============================================================ */
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ink:     #ECEDF0;  /* text / borders */
+      --acid:    #A6FF3F;  /* accent */
+      --acid-dim:#BEFF70;
+      --paper:   #0B0D11;  /* page background */
+      --white:   #161A21;  /* card material */
+      --dim:     #9AA4AE;  /* muted text */
+      color-scheme: dark;
+    }
+    /* selection: acid bar with dark text */
+    ::selection{background:var(--acid);color:#0A0C10;}
+    /* solid fills stay dark with acid text, thin borders read clean */
+    .cmdline, .eyebrow, .spec .tag, thead th, .car-head{
+      background:#0A0C10;
+      color:var(--acid);
+      border-color:#3A3F47;
+    }
+    .cmdline code{color:#D8FFB0;}
+    /* the card frame: light text, soft border, shadow goes translucent */
+    .block{
+      box-shadow:8px 8px 0 rgba(4,6,9,.6);
+      border-color:#3A3F47;
+      background:var(--white);
+      color:var(--ink);
+    }
+    h1 .hi{box-shadow:8px 8px 0 #0A0C10;border-color:var(--acid);}
+    .spec, .arch-node{background:var(--white);color:var(--ink);}
+    .spec:hover{background:#1C212A;}
+    /* carousel */
+    .car-arrow{background:var(--paper);color:var(--ink);}
+    .car-arrow:hover{background:var(--acid);color:#0A0C10;}
+    .car-arrow:active{background:#0A0C10;color:var(--acid);}
+    .car-dots-row{background:var(--white);}
+    .car-dots .dot{background:#2A2E35;border-color:#4A4F57;}
+    .car-dots .dot.on{background:var(--acid);border-color:var(--acid);}
+    .car-dots .dot:hover{background:var(--acid-dim);}
+    .car-cap{color:#fff;}
+    /* buttons */
+    .btn.primary{background:var(--acid);color:#0A0C10;border-color:var(--acid);}
+    .btn.primary:hover{background:#D8FFB0;color:#0A0C10;}
+    .btn.ghost, .bar .gh{background:var(--white);color:var(--ink);}
+    .btn.ghost:hover{background:var(--paper);}
+    .bar .gh:hover{background:var(--acid);color:#0A0C10;}
+    .copy-btn{background:var(--acid);color:#0A0C10;}
+    .copy-btn:hover{background:#D8FFB0;}
+    .copy-btn.copied{background:var(--acid-dim);color:#0A0C10;}
+    /* architecture chip */
+    .arch-node .via{background:var(--acid);color:#0A0C10;}
+    /* manual install */
+    .manual select{background:var(--white);color:var(--ink);border-color:#3A3F47;}
+    .manual-row{background:#141820;border-color:#3A3F47;}
+    .manual-row a.dl{color:#D8FFB0;}
+    .manual-note code{background:#141820;}
+    /* muted / heading text */
+    .lede, .spec p, .arch-node p, .install-note, footer{color:var(--dim);}
+    .spec h3, .arch-node h4{color:var(--ink);}
+    .install-note a{color:var(--acid-dim);}
+    .mobile-nav{background:var(--white);}
+  }
+</style>
+</head>
+<body>
+
+<header id="site-header">
+  <div class="wrap bar">
+    <div class="brand">
+      <img id="brand-icon" src="app-icon.svg" alt="SpacePods Linux icon" title="Reload page">
+      SPACEPODS LINUX
+    </div>
+    <nav>
+      <a href="#install">INSTALL</a>
+      <a href="#features">FEATURES</a>
+      <a href="#architecture">ARCHITECTURE</a>
+      <a href="#gui">GUI</a>
+    </nav>
+    <a class="gh" href="https://github.com/Imnotndesh/spacepods-linux" target="_blank" rel="noopener">
+      GITHUB ↗
+    </a>
+    <button class="menu-btn" id="menu-btn" type="button" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+  </div>
+  <nav class="mobile-nav" id="mobile-nav">
+    <a href="#install">INSTALL</a>
+    <a href="#features">FEATURES</a>
+    <a href="#gui">GUI</a>
+    <a href="#architecture">ARCHITECTURE</a>
+    <a href="https://github.com/Imnotndesh/spacepods-linux" target="_blank" rel="noopener">GITHUB ↗</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero" id="hero-section">
+    <video class="hero-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true">
+      <source src="video/hero-video.mp4" type="video/mp4">
+    </video>
+    <div class="hero-overlay" aria-hidden="true"></div>
+    <div class="wrap">
+      <h1>Your Oraimo earbuds<br>don't need <span class="hi">Android</span>.</h1>
+      <p class="lede">
+        SpacePods Linux is a small daemon and a GTK4 companion app that speak the
+        Oraimo SpaceBuds BLE protocol directly: <strong>ANC, EQ, battery, gestures,
+        game mode</strong> from your Linux desktop, over a socket, with no vendor
+        app in the loop.
+      </p>
+
+      <div class="block hero-install install">
+        <div class="label">
+          <span>ONE-LINE INSTALL</span>
+          <span>SH / BASH</span>
+        </div>
+        <div class="cmdline">
+          <code id="install-cmd">curl -fSL -O https://github.com/Imnotndesh/spacepods-linux/releases/latest/download/install.sh && sh install.sh install all</code>
+          <button class="copy-btn" id="copy-btn" type="button">COPY</button>
+        </div>
+        <p class="install-note">
+          Downloads the script to a file first, never pipes to a shell blind.
+          See <a href="#install">full install options ↓</a> for deb/rpm/flatpak/tarball
+          and picking a specific version.
+        </p>
+
+        <p class="manual-toggle"><a id="manual-toggle" href="#">MANUAL INSTALL?</a></p>
+
+        <div class="block manual" id="manual-panel">
+          <div class="label">SELECT YOUR DISTRIBUTION</div>
+          <select id="dist-select" aria-label="Distribution">
+            <option value="debian">Debian / Ubuntu (.deb)</option>
+            <option value="fedora">Fedora / RHEL (.rpm)</option>
+            <option value="opensuse">openSUSE (.rpm)</option>
+            <option value="flatpak">Any distro (GUI via Flatpak)</option>
+          </select>
+          <div class="manual-rel" id="manual-rel">Fetching latest release…</div>
+          <div id="manual-out" class="manual-out"></div>
+          <div class="manual-note" id="manual-note"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Everything the phone app does. None of the phone app.</h2>
+      <div class="specs">
+        <div class="spec">
+          <span class="tag">ANC</span>
+          <h3>Off / ANC / Transparency</h3>
+          <p>Toggle noise modes and tune intensity 0-15 per mode, straight from the CLI or GUI.</p>
+        </div>
+        <div class="spec">
+          <span class="tag">EQ</span>
+          <h3>10 built-in curves</h3>
+          <p>Bass Boost, Rock, Jazz, Vocal, Treble, Harman AE/OE and more, or draw your own 7-band custom curve.</p>
+        </div>
+        <div class="spec">
+          <span class="tag">BATTERY</span>
+          <h3>Left / right / case</h3>
+          <p>Per-bud and case battery percentage, polled quietly in the background service.</p>
+        </div>
+        <div class="spec">
+          <span class="tag">GESTURES</span>
+          <h3>Tap mapping</h3>
+          <p>Reassign single/double/triple tap and long-press per ear to 10 different actions.</p>
+        </div>
+        <div class="spec">
+          <span class="tag">MULTIPOINT</span>
+          <h3>Dual device</h3>
+          <p>Enable simultaneous connection to two devices and switch audio source on the fly.</p>
+        </div>
+        <div class="spec">
+          <span class="tag">MISC</span>
+          <h3>Game mode · Find my buds · Rename</h3>
+          <p>Low-latency audio, ring-to-locate, Bluetooth rename, and clearing pairing records.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gui">
+    <div class="wrap">
+      <h2>A clean GUI that tries to match the android app features.</h2>
+
+      <div class="block carousel" id="carousel">
+        <div class="car-head">
+          <span class="car-title">spacepods-ui</span>
+          <span class="car-count"><span id="car-now">1</span> / <span id="car-total">7</span></span>
+        </div>
+        <div class="car-stage">
+          <button class="car-arrow" data-dir="-1" type="button" aria-label="Previous screenshot">&#8249;</button>
+          <div class="car-view" id="car-view">
+            <div class="car-slides" id="car-slides">
+              <figure class="car-slide">
+                <img src="screenshots/pairing-screen.png" alt="Pairing screen">
+                <figcaption class="car-cap">PAIRING</figcaption>
+              </figure>
+              <figure class="car-slide">
+                <img src="screenshots/anc-screen.png" alt="ANC control screen">
+                <figcaption class="car-cap">ANC CONTROL</figcaption>
+              </figure>
+              <figure class="car-slide">
+                <img src="screenshots/equalizer-page.png" alt="Equalizer screen">
+                <figcaption class="car-cap">EQUALIZER</figcaption>
+              </figure>
+              <figure class="car-slide">
+                <img src="screenshots/spatial-audio-page.png" alt="Spatial audio screen">
+                <figcaption class="car-cap">3D / SPATIAL AUDIO</figcaption>
+              </figure>
+              <figure class="car-slide">
+                <img src="screenshots/game-mode.png" alt="Game mode screen">
+                <figcaption class="car-cap">GAME MODE</figcaption>
+              </figure>
+              <figure class="car-slide">
+                <img src="screenshots/hearing-health.png" alt="Hearing health screen">
+                <figcaption class="car-cap">HEARING HEALTH</figcaption>
+              </figure>
+              <figure class="car-slide">
+                <img src="screenshots/settings-page.png" alt="Settings screen">
+                <figcaption class="car-cap">SETTINGS</figcaption>
+              </figure>
+            </div>
+          </div>
+          <button class="car-arrow next" data-dir="1" type="button" aria-label="Next screenshot">&#8250;</button>
+        </div>
+        <div class="car-dots-row">
+          <div class="car-dots" id="car-dots"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="wrap">
+      <h2>One daemon holds the Bluetooth connection. Everything else just talks to it.</h2>
+      <div class="arch">
+        <div class="arch-node">
+          <div class="n">DAEMON</div>
+          <h4>libspacepods service</h4>
+          <p>Holds the BLE connection, caches device state, serves a Unix socket at <code>/tmp/spacepods.sock</code>. Runs as a systemd user unit.</p>
+          <span class="via">RUST · BTLEPLUG</span>
+        </div>
+        <div class="arch-node">
+          <div class="n">CLI / GUI</div>
+          <h4>spacepods-ui · libspacepods cli</h4>
+          <p>Any number of clients connect over the socket at once. Live status pushes to every subscriber the moment something changes.</p>
+          <span class="via">GTK4 + LIBADWAITA</span>
+        </div>
+        <div class="arch-node">
+          <div class="n">DEVICE</div>
+          <h4>SpaceBuds / oraimo earbuds</h4>
+          <p>Speaks the proprietary Bluetrum command protocol over GATT characteristics <code>ff17</code>/<code>ff18</code>, decoded from the vendor APK.</p>
+          <span class="via">BLE GATT</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2>Pick a format. The script figures out the rest.</h2>
+
+      <div class="specs" style="margin-bottom:30px;">
+        <div class="spec">
+          <span class="tag">AUTO</span>
+          <h3>Native package (default)</h3>
+          <p>Detects <code>dpkg</code> or <code>rpm</code> and installs the matching <code>.deb</code>/<code>.rpm</code>, falling back to a tarball if neither exists.</p>
+        </div>
+        <div class="spec">
+          <span class="tag">GUI ONLY</span>
+          <h3>Flatpak</h3>
+          <p>The daemon is always native, but the GUI can run sandboxed via Flatpak instead, with <code>--flatpak</code>.</p>
+        </div>
+        <div class="spec">
+          <span class="tag">PINNED</span>
+          <h3>Specific version</h3>
+          <p>Pass <code>--version=vX.Y.Z</code> to install an exact release tag instead of latest.</p>
+        </div>
+      </div>
+
+      <div class="block" style="padding:22px;">
+        <div class="label" style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--dim);margin-bottom:14px;">COMMON COMMANDS</div>
+        <div class="cmdline" style="margin-bottom:10px;"><code>sh install.sh install all</code></div>
+        <div class="cmdline" style="margin-bottom:10px;"><code>sh install.sh install all --flatpak</code></div>
+        <div class="cmdline" style="margin-bottom:10px;"><code>sh install.sh install libspacepods --version=v0.5.0</code></div>
+        <div class="cmdline"><code>sh install.sh remove all</code></div>
+        <p class="install-note">
+          Daemon starts automatically via a systemd user unit installed alongside it.
+          Check status with <code>systemctl --user status spacepods</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-block">
+    <div class="wrap">
+      <h2>Run the install script. Pair once. Forget the app exists.</h2>
+      <div class="cmdline">
+        <code>curl -fSL -O https://github.com/Imnotndesh/spacepods-linux/releases/latest/download/install.sh && sh install.sh install all</code>
+      </div>
+      <div class="cta-links">
+        <a class="btn primary" href="https://github.com/Imnotndesh/spacepods-linux/releases/latest" target="_blank" rel="noopener">LATEST RELEASE ↗</a>
+        <a class="btn ghost" href="https://github.com/Imnotndesh/spacepods-linux" target="_blank" rel="noopener">SOURCE ON GITHUB ↗</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;width:100%;">
+    <span>SPACEPODS LINUX · AN UNOFFICIAL, REVERSE-ENGINEERED CLIENT. NOT AFFILIATED WITH ORAIMO.</span>
+    <span><a href="https://github.com/Imnotndesh/spacepods-linux" target="_blank" rel="noopener">GITHUB</a> · <a href="../">← BACK TO PORTFOLIO</a></span>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    /* === copy button === */
+    var btn = document.getElementById('copy-btn');
+    var cmd = document.getElementById('install-cmd');
+    if(btn && cmd){
+      btn.addEventListener('click', function(){
+        var text = cmd.textContent;
+        function done(){
+          btn.textContent = 'COPIED';
+          btn.classList.add('copied');
+          setTimeout(function(){
+            btn.textContent = 'COPY';
+            btn.classList.remove('copied');
+          }, 1600);
+        }
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text).then(done, function(){ fallbackCopy(text, done); });
+        } else { fallbackCopy(text, done); }
+      });
+    }
+    function fallbackCopy(text, cb){
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch(e) {}
+      document.body.removeChild(ta); cb();
+    }
+
+    /* === logo click reloads the page === */
+    var brandIcon = document.getElementById('brand-icon');
+    if(brandIcon){
+      brandIcon.addEventListener('click', function(e){
+        e.preventDefault();
+        location.reload();
+      });
+    }
+
+    /* === transparent header until the hero scrolls past === */
+    var headerEl = document.getElementById('site-header');
+    function onScroll(){
+      if(headerEl){
+        headerEl.classList.toggle('scrolled', window.scrollY > 24);
+      }
+    }
+    window.addEventListener('scroll', onScroll, { passive:true });
+    onScroll();
+
+    /* === mobile nav toggle === */
+    var menuBtn = document.getElementById('menu-btn');
+    var mobileNav = document.getElementById('mobile-nav');
+    if(menuBtn && mobileNav){
+      menuBtn.addEventListener('click', function(){
+        var open = mobileNav.classList.toggle('open');
+        menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        menuBtn.textContent = open ? '✕' : '☰';
+      });
+      mobileNav.querySelectorAll('a').forEach(function(a){
+        a.addEventListener('click', function(){
+          mobileNav.classList.remove('open');
+          menuBtn.setAttribute('aria-expanded','false');
+          menuBtn.textContent = '☰';
+        });
+      });
+    }
+
+    /* === hero background video === */
+    var heroVideo = document.querySelector('.hero-video');
+    if(heroVideo){
+      // pause for users who prefer reduced motion
+      if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+        heroVideo.pause();
+        heroVideo.removeAttribute('autoplay');
+        heroVideo.muted = true;
+      }
+      // if the file can't play, quietly drop it so the scene still works
+      heroVideo.addEventListener('error', function(){
+        var v = heroVideo;
+        if(v.parentNode){ v.parentNode.removeChild(v); }
+      }, { once:true });
+    }
+
+    /* === screenshot carousel (manual only, no auto-switch) === */
+    var slides = document.getElementById('car-slides');
+    var arrows = document.querySelectorAll('.car-arrow');
+    var dotsWrap = document.getElementById('car-dots');
+    var nowEl = document.getElementById('car-now');
+    var totalEl = document.getElementById('car-total');
+    var cur = 0;
+    if(slides){
+      var slideEls = slides.querySelectorAll('.car-slide');
+      totalEl.textContent = slideEls.length;
+      var DOTS = [];
+      slideEls.forEach(function(_, i){
+        var d = document.createElement('span');
+        d.className = 'dot';
+        d.addEventListener('click', function(){ go(i); });
+        dotsWrap.appendChild(d);
+        DOTS.push(d);
+      });
+      function go(i){
+        cur = (i + slideEls.length) % slideEls.length;
+        slides.style.transform = 'translateX(-' + (cur * 100) + '%)';
+        nowEl.textContent = cur + 1;
+        DOTS.forEach(function(d,k){
+          d.classList.toggle('on', cur === k);
+        });
+      }
+      arrows.forEach(function(a){
+        a.addEventListener('click', function(){
+          go(cur + parseInt(a.getAttribute('data-dir'), 10));
+        });
+      });
+      go(0);
+    }
+
+    /* === manual install: distro selector + latest release fetch === */
+    var manualToggle = document.getElementById('manual-toggle');
+    var manualPanel = document.getElementById('manual-panel');
+    var distSelect = document.getElementById('dist-select');
+    var manualRel = document.getElementById('manual-rel');
+    var manualOut = document.getElementById('manual-out');
+    var manualNote = document.getElementById('manual-note');
+
+    if(manualToggle && manualPanel){
+      manualToggle.addEventListener('click', function(e){
+        e.preventDefault();
+        manualPanel.classList.toggle('open');
+      });
+    }
+
+    // cache fetched release data; fall back gracefully if GH API is unreachable
+    function escapeHtml(s){
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    var releaseTag = null;
+    var assets = [];
+
+    function fmt(size){
+      if(!size) return '';
+      var kb = size / 1024;
+      if(kb > 1024) return ' (' + (kb/1024).toFixed(1) + ' MB)';
+      return ' (' + Math.round(kb) + ' KB)';
+    }
+
+    // Pick the newest (first) asset matching a prefix + extension.
+    function pick(prefix, ext){
+      if(!assets.length) return null;
+      var a = null;
+      assets.forEach(function(x){
+        if(a) return;
+        if(x.name.indexOf(prefix) === 0 && x.name.lastIndexOf(ext) === x.name.length - ext.length){
+          a = x;
+        }
+      });
+      return a;
+    }
+
+    // Per-distro package-manager install command for a downloaded file.
+    function instCmd(sel, file){
+      var f = escapeHtml(file);
+      if(sel === 'debian')  return 'sudo apt install -y ./' + f;   // resolves .deb deps
+      if(sel === 'opensuse')return 'sudo zypper install -y --allow-unsigned-rpm ./' + f;
+      return 'sudo dnf install -y ./' + f;  // fedora / rhel
+    }
+
+    function render(){
+      if(!assets.length){
+        manualRel.textContent = 'Latest release: ' + (releaseTag || 'v1.x.x');
+        manualOut.innerHTML =
+          '<div class="manual-row"><div class="pkg">COULD NOT REACH GITHUB API</div>' +
+          '<div class="cmd">See <a class="dl" href="https://github.com/Imnotndesh/spacepods-linux/releases/latest" target="_blank" rel="noopener">the latest release</a> to grab the matching package manually.</div></div>';
+        manualNote.innerHTML = '';
+        return;
+      }
+      var sel = distSelect.value;
+      var html = '';
+      var note = '';
+
+      if(sel === 'flatpak'){
+        // GUI via flatpak bundle; daemon is always a native install.
+        var fp = pick('', '.flatpak');
+        if(fp){
+          html += row('SPACEPODS-UI (GUI, SANDBOXED) ' + fmt(fp.size),
+            'flatpak install --user ' + escapeHtml(fp.browser_download_url) + ' && flatpak run com.spacepods.ui');
+        }
+        note = 'Flatpak only installs the GUI. The daemon (libspacepods) is always native: pick ' +
+               'Debian/Ubuntu or Fedora/openSUSE above for that, or use the <a class="dl" href="#install">one-line script</a> which does it automatically. ' +
+               'Flatpak needs to be installed first: <code>flatpak</code>.';
+      } else {
+        var ext = (sel === 'debian') ? '.deb' : '.rpm';
+        var lib = pick('libspacepods', ext);
+        var ui  = pick('spacepods-ui', ext);
+
+        if(lib){
+          html += row('LIBSPACEPODS (DAEMON + CLI) ' + fmt(lib.size),
+            'wget ' + escapeHtml(lib.browser_download_url) + ' && ' + instCmd(sel, lib.name));
+        } else {
+          html += missing('libspacepods', ext);
+        }
+        if(ui){
+          html += row('SPACEPODS-UI (GUI) ' + fmt(ui.size),
+            'wget ' + escapeHtml(ui.browser_download_url) + ' && ' + instCmd(sel, ui.name));
+        } else {
+          html += missing('spacepods-ui', ext);
+        }
+
+        var base = 'https://github.com/Imnotndesh/spacepods-linux/releases/latest/download';
+        note = 'Prefer the tarball? The official installer pulls <code>' + base.replace('https://','') + '/libspacepods-x86_64.tar.gz</code> and ' +
+               '<code>spacepods-ui-x86_64.tar.gz</code> with <code>sh install.sh install all</code>. ' +
+               'These .deb/' + ext.slice(1) + ' files above are the same release, packaged for your distro. Links above always ' +
+               'point at the latest version fetched live from the GitHub API.';
+      }
+      manualOut.innerHTML = html;
+      manualNote.innerHTML = note;
+    }
+
+    function missing(pkg, ext){
+      return '<div class="manual-row"><div class="pkg">' + pkg.toUpperCase() + ' (missing)</div>' +
+        '<div class="cmd">No <code>' + ext + '</code> for this component in the latest release.</div></div>';
+    }
+
+    function row(pkg, cmd){
+      return '<div class="manual-row"><div class="pkg">' + pkg + '</div>' +
+        '<div class="cmd">$ ' + cmd + '</div></div>';
+    }
+
+    if(distSelect){
+      distSelect.addEventListener('change', render);
+    }
+
+    fetch('https://api.github.com/repos/Imnotndesh/spacepods-linux/releases/latest')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(data && data.tag_name){
+          releaseTag = data.tag_name;
+          assets = (data.assets || []).filter(function(a){ return !a.name || a.name.indexOf('.tar') === -1; });
+          if(!assets.length){ assets = data.assets || []; }
+          manualRel.textContent = 'Latest release: ' + releaseTag;
+          render();
+        } else {
+          throw new Error('bad payload');
+        }
+      })
+      .catch(function(){
+        manualRel.textContent = 'Latest release: check the GitHub page';
+        render();
+      });
+  })();
+</script>
+
+</body>
+</html>
